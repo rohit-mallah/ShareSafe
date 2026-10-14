@@ -28,29 +28,33 @@ final class DesktopStatusMenu: NSObject {
     private let performAction: (DesktopStatusAction) -> Void
 
     init(regionCount: Int, isEditing: Bool, emergencyCovered: Bool, error: String?,
-         shortcutWarning: String?, performAction: @escaping (DesktopStatusAction) -> Void) {
+         shortcutWarning: String?, visibleRegionCount: Int? = nil,
+         performAction: @escaping (DesktopStatusAction) -> Void) {
         self.performAction = performAction
         super.init()
         menu.autoenablesItems = false
+        let visible = visibleRegionCount ?? regionCount
         info("ShareSafe")
         info(emergencyCovered ? "All displays hidden" : regionCount == 0 ? "Drag an area to blur" :
-             "\(regionCount) \(regionCount == 1 ? "area" : "areas") hidden")
+             "\(visible) \(visible == 1 ? "area" : "areas") hidden")
+        if visible != regionCount { info("\(regionCount) saved on their windows") }
         menu.addItem(.separator())
         action(regionCount == 0 ? "Blur an area" : "Blur another area", .selectArea,
                enabled: !emergencyCovered)
-        let canEdit = regionCount > 0 && !emergencyCovered
+        let canEdit = visible > 0 && !emergencyCovered
         action(isEditing ? "Finish editing" : "Move / remove areas", .editAreas, enabled: canEdit)
         if isEditing {
             action("Remove selected area", .removeSelected, enabled: canEdit, shortcut: "Delete")
             info("Arrows move · Shift moves faster · Tab selects")
         }
-        action("Undo last area", .undo, enabled: canEdit)
-        action("Clear all areas", .clear, enabled: canEdit)
+        action("Undo last area", .undo, enabled: regionCount > 0 && !emergencyCovered)
+        action("Clear all areas", .clear, enabled: regionCount > 0 && !emergencyCovered)
         menu.addItem(.separator())
         action(emergencyCovered ? "Restore screen" : "Hide all displays", .toggleEmergency)
         if let error {
             menu.addItem(.separator())
-            let warning = info("Review your areas after the screen change")
+            let warning = info(error.hasPrefix("Start your drag") ? "Start your drag inside an app window" :
+                                "Review your areas after the screen change")
             warning.toolTip = error
         }
         if let shortcutWarning { info(shortcutWarning) }

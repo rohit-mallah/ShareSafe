@@ -74,4 +74,19 @@ struct DesktopStatusMenuTests {
         #expect(Set(DesktopShortcut.all.map(\.keyCode)).count == DesktopShortcut.all.count)
         #expect(Set(DesktopShortcut.all.map(\.action)) == [.selectArea, .editAreas, .undo, .clear, .toggleEmergency])
     }
+
+    @Test func hiddenWindowsKeepUndoAndClearAvailableWithoutOfferingInvisibleEdits() throws {
+        let controller = DesktopStatusMenu(regionCount: 2, isEditing: false, emergencyCovered: false,
+            error: nil, shortcutWarning: nil, visibleRegionCount: 0, performAction: { _ in })
+        #expect(try !item(.editAreas, in: controller).isEnabled)
+        #expect(try item(.undo, in: controller).isEnabled)
+        #expect(try item(.clear, in: controller).isEnabled)
+        #expect(controller.menu.items.contains { $0.title == "0 areas hidden" })
+        #expect(controller.menu.items.contains { $0.title == "2 saved on their windows" })
+    }
+
+    @Test func unsupportedSelectionShowsTheRelevantRecoveryInstruction() {
+        let controller = menu(error: "Start your drag inside an app window. The area must overlap that window.")
+        #expect(controller.menu.items.contains { $0.title == "Start your drag inside an app window" })
+    }
 }

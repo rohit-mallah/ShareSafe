@@ -20,6 +20,7 @@ final class DesktopCoverSurface: NSView {
     var onSelect: (() -> Void)?
     var onSelectNext: ((Bool) -> Void)?
     var onNudge: ((CGVector) -> Void)?
+    var coverFrame: (() -> CGRect?)?
     var onMove: ((CGRect, CGVector) -> Void)?
     var onRemove: (() -> Void)?
     var onCancel: (() -> Void)?
@@ -119,7 +120,7 @@ final class DesktopCoverSurface: NSView {
         window.makeKey()
         window.makeFirstResponder(self)
         dragStart = window.convertPoint(toScreen: event.locationInWindow)
-        initialFrame = window.frame
+        initialFrame = coverFrame?() ?? window.frame
     }
 
     override func mouseDragged(with event: NSEvent) {

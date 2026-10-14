@@ -8,6 +8,7 @@ import ShareSafeCore
 final class DesktopOverlayController: ObservableObject {
     @Published var maskStyle: MaskStyle = .blur
     @Published private(set) var regionCount = 0
+    @Published private(set) var visibleRegionCount = 0
     @Published private(set) var isSelecting = false
     @Published private(set) var isEditing = false
     @Published private(set) var emergencyCovered = false
@@ -29,9 +30,11 @@ final class DesktopOverlayController: ObservableObject {
 
     private struct Cover {
         let id: UUID
-        let displayID: UInt32
+        var anchor: DesktopWindowAnchor
+        let style: MaskStyle
         var frame: CGRect
-        let panel: OverlayPanel
+        var panels: [OverlayPanel] = []
+        var visibleFragments: [CGRect] = []
     }
 
     private var covers: [Cover] = []
@@ -41,16 +44,25 @@ final class DesktopOverlayController: ObservableObject {
     private var displays: [Display] = []
     private var screenObserver: NSObjectProtocol?
     private var accessibilityObserver: NSObjectProtocol?
+    private var workspaceObservers: [NSObjectProtocol] = []
+    private var trackingTask: Task<Void, Never>?
+    private let readWindows: () -> DesktopWindowScope
+    private var windowScope = DesktopWindowScope(windows: [])
+    private var selectionWindow: DesktopWindow?
     private var keyMonitor: Any?
     private weak var priorKeyWindow: NSWindow?
     private var stopped = false
     private var needsDisplayReview = false
 
     private var editableCovers: [Cover] {
-        covers.filter { cover in displays.contains { $0.id == cover.displayID } }
+        covers.filter { !$0.visibleFragments.isEmpty }
     }
 
-    init() {
+    init(readWindows: (() -> DesktopWindowScope)? = nil) {
+        self.readWindows = readWindows ?? {
+            DesktopWindowScope.read(primaryTop: NSScreen.screens.first?.frame.maxY ?? 0,
+                excludingProcessID: ProcessInfo.processInfo.processIdentifier)
+        }
         displays = NSScreen.screens.compactMap(Display.init)
         screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
@@ -64,10 +76,85 @@ final class DesktopOverlayController: ObservableObject {
                 guard let self else { return }
                 let reduce = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
                 for cover in self.covers {
-                    (cover.panel.contentView as? DesktopCoverSurface)?.reduceTransparency = reduce
+                    for panel in cover.panels {
+                        (panel.contentView as? DesktopCoverSurface)?.reduceTransparency = reduce
+                    }
                 }
             }
         }
+
+        for name in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.activeSpaceDidChangeNotification,
+                     NSWorkspace.didHideApplicationNotification, NSWorkspace.didUnhideApplicationNotification,
+                     NSWorkspace.didTerminateApplicationNotification] {
+            workspaceObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
+                forName: name, object: nil, queue: .main
+            ) { [weak self] notification in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    if notification.name == NSWorkspace.didActivateApplicationNotification,
+                       let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                       app.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+                        self.endInteraction()
+                    }
+                    self.refreshWindowScope()
+                }
+            })
+        }
+        // Window movement/resize has no permission-free cross-app notification.
+        // Query only while areas exist; read metadata rather than capturing pixels.
+        trackingTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                if let self, !self.covers.isEmpty { self.refreshWindowScope() }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+        }
+    }
+
+    func refreshWindowScope() {
+        guard !stopped else { return }
+        windowScope = readWindows()
+        reconcileCovers()
+    }
+
+    private func reconcileCovers() {
+        let keyPanel = NSApp.keyWindow
+        let focusedCoverID = covers.first { cover in cover.panels.contains { $0 === keyPanel } }?.id
+        var visible = 0
+        for index in covers.indices {
+            if let source = windowScope.window(for: covers[index].anchor.identity) {
+                covers[index].frame = covers[index].anchor.rectangle(in: source.frame)
+            }
+            let fragments = windowScope.visibleFragments(for: covers[index].anchor).flatMap { frame in
+                displays.compactMap { OverlayGeometry.clipped(frame, to: $0.frame) }
+            }
+            covers[index].visibleFragments = fragments
+            if !fragments.isEmpty { visible += 1 }
+            while covers[index].panels.count < fragments.count {
+                covers[index].panels.append(makeCoverPanel(id: covers[index].id, style: covers[index].style))
+            }
+            for (part, panel) in covers[index].panels.enumerated() {
+                guard part < fragments.count else {
+                    setEditing(false, on: panel)
+                    panel.orderOut(nil)
+                    continue
+                }
+                if panel.frame != fragments[part] { panel.setFrame(fragments[part], display: true) }
+                setEditing(isEditing, on: panel)
+                (panel.contentView as? DesktopCoverSurface)?.selected = covers[index].id == selectedCoverID
+                if !panel.isVisible { panel.orderFrontRegardless() }
+            }
+        }
+        if visibleRegionCount != visible { visibleRegionCount = visible }
+        if isEditing, !editableCovers.contains(where: { $0.id == selectedCoverID }) {
+            if let next = editableCovers.last { focusCover(next.id) }
+            else { endInteraction() }
+        } else if isEditing, focusedCoverID == selectedCoverID, let selectedCoverID,
+                  let keyPanel, !keyPanel.isVisible {
+            // An occlusion change may pool the focused fragment while another
+            // fragment of the same logical area remains. Keep its keys working.
+            focusCover(selectedCoverID)
+        }
+        if !isSelecting { updateStatus() }
     }
 
     func beginSelection() {
@@ -77,6 +164,7 @@ final class DesktopOverlayController: ObservableObject {
             return
         }
         endInteraction()
+        refreshWindowScope()
         let screens = NSScreen.screens
         guard !screens.isEmpty else {
             lastError = "No display is available."
@@ -98,6 +186,11 @@ final class DesktopOverlayController: ObservableObject {
             view.setAccessibilityRole(.group)
             view.setAccessibilityLabel("Drag to select a hidden area. Escape cancels selection.")
             view.screenFrame = display.frame
+            view.onBegin = { [weak self] point in
+                guard let self else { return }
+                self.refreshWindowScope()
+                self.selectionWindow = self.windowScope.target(at: point)
+            }
             view.onCommit = { [weak self] rectangle in
                 guard let self, self.isSelecting else { return }
                 // Install the cover before removing selection windows.
@@ -132,15 +225,18 @@ final class DesktopOverlayController: ObservableObject {
             return
         }
         endInteraction()
+        refreshWindowScope()
         guard let last = editableCovers.last else {
             status = covers.isEmpty ? "Hide an area before editing." :
-                "Your areas are on disconnected displays. Reconnect them or clear all areas."
+                "Show a protected window to edit its areas."
             return
         }
         priorKeyWindow = NSApp.keyWindow
         isEditing = true
         installKeyMonitor()
-        for cover in editableCovers { setEditing(true, on: cover.panel) }
+        for cover in editableCovers {
+            for panel in cover.panels where panel.isVisible { setEditing(true, on: panel) }
+        }
         focusCover(last.id)
         updateStatus()
     }
@@ -154,10 +250,14 @@ final class DesktopOverlayController: ObservableObject {
         guard isEditing, let cover = editableCovers.first(where: { $0.id == id }) else { return }
         selectedCoverID = id
         for item in covers {
-            (item.panel.contentView as? DesktopCoverSurface)?.selected = item.id == id
+            for panel in item.panels {
+                (panel.contentView as? DesktopCoverSurface)?.selected = item.id == id
+            }
         }
-        cover.panel.makeKeyAndOrderFront(nil)
-        cover.panel.makeFirstResponder(cover.panel.contentView)
+        if let panel = cover.panels.first(where: { $0.isVisible }) {
+            panel.makeKeyAndOrderFront(nil)
+            panel.makeFirstResponder(panel.contentView)
+        }
     }
 
     private func cycleCover(reverse: Bool) {
@@ -179,8 +279,9 @@ final class DesktopOverlayController: ObservableObject {
         endInteraction()
         // Undo removes the most recently created remaining ordinary cover.
         guard let cover = covers.popLast() else { return }
-        cover.panel.close()
+        cover.panels.forEach { $0.close() }
         regionCount = covers.count
+        reconcileCovers()
         if covers.isEmpty { endInteraction() }
         updateStatus()
     }
@@ -188,9 +289,10 @@ final class DesktopOverlayController: ObservableObject {
     func removeAll() {
         guard !stopped, !emergencyCovered else { return }
         endInteraction()
-        covers.forEach { $0.panel.close() }
+        covers.forEach { $0.panels.forEach { $0.close() } }
         covers.removeAll()
         regionCount = 0
+        visibleRegionCount = 0
         needsDisplayReview = false
         lastError = nil
         updateStatus()
@@ -199,7 +301,8 @@ final class DesktopOverlayController: ObservableObject {
     func toggleEmergencyCover() {
         guard !stopped else { return }
         if emergencyCovered {
-            // Ordinary covers are already present beneath the blankets.
+            // Reconcile window positions before uncovering the desktop.
+            refreshWindowScope()
             emergencyPanels.forEach { $0.close() }
             emergencyPanels.removeAll()
             emergencyCovered = false
@@ -218,17 +321,22 @@ final class DesktopOverlayController: ObservableObject {
     func stop() {
         guard !stopped else { return }
         stopped = true
+        trackingTask?.cancel()
+        trackingTask = nil
         endInteraction()
-        covers.forEach { $0.panel.close() }
+        covers.forEach { $0.panels.forEach { $0.close() } }
         emergencyPanels.forEach { $0.close() }
         covers.removeAll()
         emergencyPanels.removeAll()
         regionCount = 0
+        visibleRegionCount = 0
         emergencyCovered = false
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
         screenObserver = nil
         if let accessibilityObserver { NSWorkspace.shared.notificationCenter.removeObserver(accessibilityObserver) }
         accessibilityObserver = nil
+        workspaceObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
+        workspaceObservers.removeAll()
         status = "Protection stopped"
     }
 
@@ -258,18 +366,36 @@ final class DesktopOverlayController: ObservableObject {
     }
 
     private func addCover(_ rectangle: CGRect, display: Display) {
-        guard let frame = OverlayGeometry.clipped(rectangle, to: display.frame) else { return }
+        refreshWindowScope()
+        guard let selected = selectionWindow,
+              let source = windowScope.window(for: selected.identity),
+              let clipped = OverlayGeometry.clipped(rectangle, to: display.frame),
+              let anchor = DesktopWindowAnchor(window: source, rectangle: clipped) else {
+            lastError = "Start your drag inside an app window. The area must overlap that window."
+            return
+        }
         let id = UUID()
+        covers.append(Cover(id: id, anchor: anchor, style: maskStyle, frame: anchor.rectangle(in: source.frame)))
+        regionCount = covers.count
+        reconcileCovers()
+        if !needsDisplayReview { lastError = nil }
+    }
+
+    private func makeCoverPanel(id: UUID, style: MaskStyle) -> OverlayPanel {
         let reduceTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
-        let panel = makePanel(frame: frame, level: coverLevel, opaque: maskStyle == .solid || reduceTransparency)
+        let frame = CGRect(x: 0, y: 0, width: 1, height: 1)
+        let panel = makePanel(frame: frame, level: coverLevel, opaque: style == .solid || reduceTransparency)
         panel.ignoresMouseEvents = true
         panel.title = "ShareSafe — hidden area"
         panel.setAccessibilityLabel("ShareSafe protected area")
         let surface = DesktopCoverSurface(frame: CGRect(origin: .zero, size: frame.size),
-                                          style: maskStyle, reduceTransparency: reduceTransparency)
+                                          style: style, reduceTransparency: reduceTransparency)
         surface.setAccessibilityElement(true)
         surface.setAccessibilityRole(.group)
         surface.setAccessibilityLabel("Protected area. In edit mode, drag to move or right-click to remove.")
+        // A partially covered area can have several panels, but editing always
+        // moves/selects/removes its one logical rectangle.
+        surface.coverFrame = { [weak self] in self?.covers.first { $0.id == id }?.frame }
         surface.onMove = { [weak self] startFrame, delta in self?.moveCover(id, startFrame: startFrame, delta: delta) }
         surface.onSelect = { [weak self] in self?.focusCover(id) }
         surface.onSelectNext = { [weak self] reverse in self?.cycleCover(reverse: reverse) }
@@ -277,24 +403,23 @@ final class DesktopOverlayController: ObservableObject {
         surface.onRemove = { [weak self] in self?.removeCover(id) }
         surface.onCancel = { [weak self] in self?.cancelInteraction() }
         panel.contentView = surface
-        covers.append(Cover(id: id, displayID: display.id, frame: frame, panel: panel))
-        regionCount = covers.count
-        panel.orderFrontRegardless()
-        if !needsDisplayReview { lastError = nil }
+        return panel
     }
 
     private func moveCover(_ id: UUID, startFrame: CGRect, delta: CGVector) {
         guard isEditing, let index = covers.firstIndex(where: { $0.id == id }),
-              let display = displays.first(where: { $0.id == covers[index].displayID }),
-              let frame = OverlayGeometry.moved(startFrame, by: delta, in: display.frame) else { return }
-        covers[index].frame = frame
-        covers[index].panel.setFrame(frame, display: true)
+              let source = windowScope.window(for: covers[index].anchor.identity),
+              let frame = OverlayGeometry.moved(startFrame, by: delta, in: source.frame),
+              let anchor = DesktopWindowAnchor(window: source, rectangle: frame) else { return }
+        covers[index].anchor = anchor
+        reconcileCovers()
     }
 
     private func removeCover(_ id: UUID) {
         guard isEditing, let index = covers.firstIndex(where: { $0.id == id }) else { return }
-        covers.remove(at: index).panel.close()
+        covers.remove(at: index).panels.forEach { $0.close() }
         regionCount = covers.count
+        reconcileCovers()
         if let last = editableCovers.last {
             focusCover(last.id)
         } else {
@@ -307,7 +432,7 @@ final class DesktopOverlayController: ObservableObject {
         panel.ignoresMouseEvents = !editing
         panel.acceptsKeyFocus = editing
         if let surface = panel.contentView as? DesktopCoverSurface {
-            surface.editing = editing
+            if surface.editing != editing { surface.editing = editing }
             if !editing { surface.selected = false }
         }
     }
@@ -334,11 +459,12 @@ final class DesktopOverlayController: ObservableObject {
     private func endInteraction() {
         let hadInteraction = isSelecting || isEditing
         isSelecting = false
+        selectionWindow = nil
         isEditing = false
         selectedCoverID = nil
         selectionPanels.forEach { $0.close() }
         selectionPanels.removeAll()
-        covers.forEach { setEditing(false, on: $0.panel) }
+        covers.forEach { $0.panels.forEach { setEditing(false, on: $0) } }
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         keyMonitor = nil
         if hadInteraction, let priorKeyWindow, priorKeyWindow.isVisible { priorKeyWindow.makeKey() }
@@ -379,16 +505,7 @@ final class DesktopOverlayController: ObservableObject {
             endInteraction()
             lastError = "Displays changed. All connected displays are covered. Restore the desktop, then review your areas before sharing."
             status = "Displays changed — emergency cover on. Review your areas."
-            // Keep session records, including disconnected displays, until an explicit removal.
-            // AppKit must not relocate a cover onto another display after a disconnect.
-            for cover in covers {
-                cover.panel.setFrame(cover.frame, display: false)
-                if current.contains(where: { $0.id == cover.displayID }) {
-                    cover.panel.orderFrontRegardless()
-                } else {
-                    cover.panel.orderOut(nil)
-                }
-            }
+            refreshWindowScope()
         } else if isSelecting {
             endInteraction()
             status = "Displays changed. Select the area again."
@@ -403,7 +520,8 @@ final class DesktopOverlayController: ObservableObject {
         } else if needsDisplayReview {
             status = "Displays changed — review hidden areas before sharing"
         } else {
-            status = regionCount == 0 ? "Ready to hide an area" : "\(regionCount) \(regionCount == 1 ? "area" : "areas") hidden"
+            status = regionCount == 0 ? "Ready to hide an area" :
+                "\(visibleRegionCount) visible · \(regionCount) saved on their windows"
         }
     }
 }
@@ -432,6 +550,7 @@ private class BlackSurface: NSView {
 @MainActor
 private final class SelectionSurface: NSView {
     var screenFrame: CGRect = .zero
+    var onBegin: ((CGPoint) -> Void)?
     var onCommit: ((CGRect?) -> Void)?
     var onCancel: (() -> Void)?
     private var dragStart: CGPoint?
@@ -475,6 +594,7 @@ private final class SelectionSurface: NSView {
         window.makeKey()
         window.makeFirstResponder(self)
         dragStart = window.convertPoint(toScreen: event.locationInWindow)
+        if let dragStart { onBegin?(dragStart) }
         endpoint = dragStart
         needsDisplay = true
     }

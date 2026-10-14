@@ -83,7 +83,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showStatusMenu(_ button: NSStatusBarButton) {
         let controller = DesktopStatusMenu(regionCount: overlays.regionCount,
             isEditing: overlays.isEditing, emergencyCovered: overlays.emergencyCovered,
-            error: overlays.lastError, shortcutWarning: shortcutWarning) { [weak self] action in
+            error: overlays.lastError, shortcutWarning: shortcutWarning,
+            visibleRegionCount: overlays.visibleRegionCount) { [weak self] action in
                 // Close the tracking menu before installing new selection panels.
                 DispatchQueue.main.async { [weak self] in self?.perform(action) }
             }
