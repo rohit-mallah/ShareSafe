@@ -17,6 +17,7 @@ enum ShareSafeApp {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let overlays = DesktopOverlayController()
+    private lazy var toolbar = DesktopToolbarController(overlays: overlays)
     private var statusItem: NSStatusItem?
     private var activeMenu: DesktopStatusMenu?
     private var subscription: AnyCancellable?
@@ -32,18 +33,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async { [weak self] in self?.updateStatus() }
         }
         updateStatus()
-        DispatchQueue.main.async { [weak self] in self?.overlays.beginSelection() }
+        DispatchQueue.main.async { [weak self] in self?.toolbar.show() }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        overlays.beginSelection()
+        toolbar.show()
         return true
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         subscription?.cancel()
+        toolbar.stop()
         overlays.stop()
         for key in hotKeys { UnregisterEventHotKey(key) }
         if let handler { RemoveEventHandler(handler) }
@@ -56,7 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.target = self
             button.action = #selector(statusClicked(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
-            button.setAccessibilityLabel("ShareSafe — click to blur; right-click for controls")
+            button.setAccessibilityLabel("ShareSafe — click for toolbar; right-click for shortcuts")
         }
         statusItem = item
     }
@@ -69,14 +71,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         image?.isTemplate = true
         button.image = image
         let state = overlays.lastError == nil ? overlays.status : "Review your hidden areas"
-        button.toolTip = "ShareSafe — \(state)\nClick to blur an area. Right-click for undo, clear and quit."
+        button.toolTip = "ShareSafe — \(state)\nClick for the toolbar. Right-click for shortcuts and quit."
     }
 
     @objc private func statusClicked(_ sender: NSStatusBarButton) {
         if NSApp.currentEvent?.type == .rightMouseUp || overlays.emergencyCovered {
             showStatusMenu(sender)
         } else {
-            overlays.beginSelection()
+            toolbar.show()
         }
     }
 
@@ -95,8 +97,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func perform(_ action: DesktopStatusAction) {
         switch action {
-        case .selectArea: overlays.beginSelection()
-        case .editAreas: overlays.toggleEditing()
+        case .selectArea:
+            toolbar.show()
+            overlays.beginSelection()
+        case .editAreas:
+            toolbar.show()
+            overlays.toggleEditing()
         case .removeSelected: overlays.removeSelected()
         case .undo: overlays.undo()
         case .clear: overlays.removeAll()

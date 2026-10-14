@@ -456,6 +456,10 @@ final class DesktopOverlayController: ObservableObject {
         updateStatus()
     }
 
+    func finishInteraction() {
+        cancelInteraction()
+    }
+
     private func endInteraction() {
         let hadInteraction = isSelecting || isEditing
         isSelecting = false
@@ -564,7 +568,7 @@ private final class SelectionSurface: NSView {
         NSColor.black.withAlphaComponent(0.12).setFill()
         bounds.fill()
         if dragStart == nil {
-            let text = "Drag to blur an area  ·  Esc cancels\nClick the ShareSafe menu-bar icon to add more. Right-click it for controls."
+            let text = "Drag to blur an area  ·  Esc cancels\nUse the toolbar to add, move or clear areas."
             let paragraph = NSMutableParagraphStyle()
             paragraph.alignment = .center
             let attributes: [NSAttributedString.Key: Any] = [

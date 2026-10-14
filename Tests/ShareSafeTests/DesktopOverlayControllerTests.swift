@@ -159,4 +159,68 @@ struct DesktopOverlayControllerTests {
         #expect(!controller.emergencyCovered)
         #expect(visiblePanels.map(\.frame) == [area.offsetBy(dx: 20, dy: 30)])
     }
+
+    @Test func toolbarShowsWithoutStartingSelectionAndItsPrimaryButtonFinishesDrawing() throws {
+        let original = try source()
+        let controller = DesktopOverlayController(readWindows: { DesktopWindowScope(windows: [original]) })
+        let toolbar = DesktopToolbarController(overlays: controller)
+        defer { toolbar.stop(); controller.stop() }
+        toolbar.show()
+        #expect(toolbar.panel.isVisible && !toolbar.panel.canBecomeKey && !toolbar.panel.canBecomeMain)
+        #expect(!controller.isSelecting && controller.regionCount == 0)
+        #expect(toolbar.panel.frame.height <= 64 && toolbar.panel.frame.width <= 500)
+        #expect(NSScreen.screens.contains { $0.visibleFrame.contains(toolbar.panel.frame) })
+        #expect(toolbar.primaryButton.acceptsFirstMouse(for: nil))
+        #expect(!toolbar.editButton.isEnabled && !toolbar.undoButton.isEnabled && !toolbar.clearButton.isEnabled)
+        toolbar.primaryButton.performClick(nil)
+        #expect(controller.isSelecting && toolbar.primaryButton.title == "Done")
+        #expect(toolbar.panel.isVisible && !toolbar.panel.isKeyWindow)
+        toolbar.primaryButton.performClick(nil)
+        #expect(!controller.isSelecting && toolbar.primaryButton.title == "Blur area")
+    }
+
+    @Test func hidingToolbarEndsEditingButKeepsAreasAndReopeningDoesNotEnrollAWindow() throws {
+        let original = try source()
+        let controller = DesktopOverlayController(readWindows: { DesktopWindowScope(windows: [original]) })
+        let toolbar = DesktopToolbarController(overlays: controller)
+        defer { toolbar.stop(); controller.stop() }
+        try draw(original.frame.insetBy(dx: 100, dy: 100), in: controller)
+        toolbar.show()
+        toolbar.editButton.performClick(nil)
+        #expect(controller.isEditing && toolbar.editButton.title == "Remove")
+        #expect(toolbar.primaryButton.title == "Done")
+        #expect(visiblePanels.first?.isKeyWindow == true)
+        toolbar.hideButton.performClick(nil)
+        #expect(!toolbar.panel.isVisible && !controller.isEditing && !controller.isSelecting)
+        #expect(controller.regionCount == 1 && visiblePanels.count == 1)
+        #expect(visiblePanels.allSatisfy { $0.ignoresMouseEvents })
+        toolbar.show()
+        #expect(!controller.isSelecting && toolbar.primaryButton.title == "Blur area")
+        toolbar.editButton.performClick(nil)
+        toolbar.editButton.performClick(nil)
+        #expect(controller.regionCount == 0 && !controller.isEditing && visiblePanels.isEmpty)
+    }
+
+    @Test func toolbarClearAndUndoRouteToTheExistingAreasAndEmergencyKeepsRestoreAvailable() throws {
+        let original = try source()
+        let area = original.frame.insetBy(dx: 100, dy: 100)
+        let controller = DesktopOverlayController(readWindows: { DesktopWindowScope(windows: [original]) })
+        let toolbar = DesktopToolbarController(overlays: controller)
+        defer { toolbar.stop(); controller.stop() }
+        try draw(area, in: controller)
+        try draw(area.insetBy(dx: 10, dy: 10), in: controller)
+        toolbar.show()
+        toolbar.undoButton.performClick(nil)
+        #expect(controller.regionCount == 1)
+        controller.toggleEmergencyCover()
+        toolbar.refresh()
+        #expect(toolbar.primaryButton.title == "Restore" && toolbar.primaryButton.isEnabled)
+        #expect(!toolbar.editButton.isEnabled && !toolbar.undoButton.isEnabled && !toolbar.clearButton.isEnabled)
+        toolbar.clearButton.performClick(nil)
+        #expect(controller.emergencyCovered && controller.regionCount == 1)
+        toolbar.primaryButton.performClick(nil)
+        #expect(!controller.emergencyCovered && controller.regionCount == 1)
+        toolbar.clearButton.performClick(nil)
+        #expect(controller.regionCount == 0 && visiblePanels.isEmpty)
+    }
 }

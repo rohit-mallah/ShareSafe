@@ -2,7 +2,7 @@
 
 **Drag to blur. Share your screen as usual.**
 
-ShareSafe is a small macOS menu-bar utility for hiding parts of your desktop. Open the app, drag a rectangle over an area, and keep using your normal screen-sharing workflow. Blur is visible on your own screen too.
+ShareSafe is a small macOS utility for hiding parts of your desktop. Open its floating toolbar, click **Blur area**, drag a rectangle, and keep using your normal screen-sharing workflow. Add areas on one or several monitors. Blur is visible on your own screen too.
 
 There is no dashboard, window enrollment, account, or separate audience window in the default workflow.
 
@@ -11,6 +11,7 @@ There is no dashboard, window enrollment, account, or separate audience window i
 ## Features
 
 - Draw multiple blur areas directly on the desktop, before or during screen sharing.
+- Keep a small draggable toolbar nearby for adding, moving, removing, undoing, and clearing areas.
 - Automatically attach each area to the window under your drag, follow that window when it moves, and keep the blur off overlapping windows.
 - Click through the areas to interact with the underlying app outside edit mode.
 - Move, select, undo, and remove areas using the mouse or keyboard.
@@ -52,12 +53,14 @@ Alternatively, run:
 
 ## Use ShareSafe
 
-1. **Open ShareSafe.** It immediately enters selection mode without opening a dashboard.
-2. **Start your drag inside the app window you want to protect.** The area attaches to that window automatically. Press Escape to cancel selection.
+1. **Open ShareSafe.** A small floating toolbar appears near the bottom of the monitor under your pointer.
+2. **Click Blur area**, then drag inside the app window you want to protect. The area attaches to that window automatically. Repeat on any connected monitor. Press Escape or **Done** to cancel selection.
 3. **Share your entire screen** through Meet, Zoom, Teams, or your usual meeting app. You can also add areas after screen sharing has started.
-4. **Click ShareSafe's menu-bar icon** to blur another area. **Right-click the icon** for editing, undo, clear, emergency coverage, and quit.
-5. **Enter edit mode** to move or remove areas. The selected area has a thick mint outline; other editable areas have thin outlines.
-6. **Finish editing** with Escape. The remaining areas become click-through again.
+4. **Click Move/remove** to edit. Click an area or use Tab to select it, then drag or use the arrow keys to move it. Click **Remove** or press Delete to remove the selected area. The selected area has a thick mint outline.
+5. **Click Done** or press Escape to finish editing. Areas become click-through again. **Undo** removes the newest area; **Clear** removes all areas.
+6. **Drag the dotted grip** to move the toolbar. Its **×** hides only the controls and leaves your areas in place. Click the menu-bar icon or reopen ShareSafe to bring the toolbar back; right-click the icon for shortcuts, emergency coverage, and quit.
+
+The toolbar does not take keyboard focus from your apps. Global shortcuts still work while it is hidden. During emergency coverage the primary button becomes **Restore**, and editing/undo/clear stay disabled.
 
 Areas stay at a fixed offset from their **source window's top-left corner**. They follow that window when it moves, including between displays. Switching apps or opening another window does not transfer an area to the new window: ShareSafe clips the overlay around windows in front of the source. If the source is fully covered, minimized, hidden, closed, or on another desktop, its overlay disappears. Returning to the same window restores it.
 
