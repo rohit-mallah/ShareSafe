@@ -1,0 +1,10 @@
+{
+  "name": "sharesafe-chrome-companion-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node background.mjs && node browser.mjs",
+    "test:extension": "node extension-smoke.mjs"
+  },
+  "devDependencies": { "playwright": "1.62.1", "pngjs": "7.0.0" }
+}

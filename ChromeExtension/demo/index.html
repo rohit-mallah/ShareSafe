@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ShareSafe — Fictional browser demo</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #18342f; background: #eef2ec; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    header { display: flex; align-items: center; justify-content: space-between; padding: 24px 6vw; border-bottom: 1px solid #cbd6cb; background: #f8faf6; }
+    .brand { font-size: 22px; font-weight: 750; letter-spacing: -.7px; }
+    .tag { padding: 7px 10px; border: 1px solid #cbd6cb; border-radius: 4px; font-size: 12px; }
+    main { max-width: 1100px; margin: auto; padding: 40px 30px 80px; }
+    .eyebrow { margin: 0 0 12px; font-size: 12px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: #5b7467; }
+    h1 { max-width: 650px; margin: 0 0 14px; font-size: clamp(30px, 4vw, 48px); line-height: 1.12; letter-spacing: -1.7px; }
+    .intro { max-width: 690px; margin: 0 0 30px; color: #5b7167; line-height: 1.6; }
+    .grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 24px; align-items: start; }
+    section { padding: 26px; background: #fff; border: 1px solid #d8e0d6; border-radius: 8px; }
+    h2 { margin: 0 0 20px; font-size: 17px; }
+    .identity { display: flex; gap: 16px; align-items: center; margin-bottom: 24px; }
+    .avatar { width: 50px; height: 50px; display: grid; place-items: center; border-radius: 50%; color: white; background: #2e6553; font-size: 20px; }
+    .identity strong { display: block; margin-bottom: 5px; }
+    small, dt { color: #6b7d73; }
+    dl { display: grid; grid-template-columns: 100px 1fr; gap: 16px 10px; margin: 0; font-size: 14px; }
+    dd { margin: 0; overflow-wrap: anywhere; }
+    #sensitive-profile { background: #fff5ea; }
+    #sensitive-balance { padding: 24px; margin: 0 0 24px; color: #fff; background: #295e4c; border-radius: 5px; }
+    #sensitive-balance small { display: block; color: #dce9d8; margin-bottom: 10px; }
+    #sensitive-balance strong { font-size: 36px; letter-spacing: -1px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+    button, .link { cursor: pointer; padding: 11px 14px; border: 1px solid #a6b9ab; border-radius: 4px; background: #fff; color: #244a3c; font: inherit; font-size: 13px; text-decoration: none; }
+    button:hover, .link:hover { background: #eef5eb; }
+    .activity { margin-top: 28px; }
+    .row { display: flex; justify-content: space-between; gap: 20px; padding: 16px 0; border-top: 1px solid #e4eae2; font-size: 14px; }
+    .row span:last-child { color: #547464; }
+    .scroll-space { height: 700px; margin-top: 40px; padding-top: 28px; border-top: 1px solid #cbd6cb; color: #6b7d73; font-size: 14px; }
+    footer { padding: 24px 6vw; border-top: 1px solid #cbd6cb; font-size: 12px; color: #6b7d73; }
+    #demo-status { min-height: 20px; margin-top: 15px; color: #527063; font-size: 12px; }
+    @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } main { padding: 30px 18px; } header { padding: 20px 18px; } }
+  </style>
+</head>
+<body>
+  <header><span class="brand">Fieldwork</span><span class="tag">FICTIONAL DEMO · LOCAL ONLY</span></header>
+  <main>
+    <p class="eyebrow">Screen sharing rehearsal</p>
+    <h1>Your presentation.<br>A little less personal.</h1>
+    <p class="intro">Open the ShareSafe Chrome companion, then pick an element or draw an area to blur. Direct Blur is the default; Style: Solid applies opaque protection to new selections. Everything on this page is invented. Scroll, resize, or move the content to check how your masks behave.</p>
+    <div id="layout-spacer"></div>
+    <div class="grid">
+      <section id="sensitive-profile" style="opacity: 0.96 !important; border-color: rgb(229, 203, 170);">
+        <h2>Personal information</h2>
+        <div class="identity"><div class="avatar">AL</div><div><strong id="nested-name" style="opacity: 1 !important;">Avery Lane</strong><small>Example account · No real customer</small></div></div>
+        <dl>
+          <dt>Email</dt><dd id="fictional-email">avery@example.invalid</dd>
+          <dt>Member ID</dt><dd>DEMO-2048-AL</dd>
+          <dt>Address</dt><dd>42 Sample Lane, Example City</dd>
+          <dt>Secret note</dt><dd id="nested-note" style="opacity: 1 !important; transition: opacity 2s;">Invented launch phrase: green shuttle</dd>
+        </dl>
+        <div class="actions"><button id="sensitive-action">Open fictional profile</button><a id="sensitive-link" class="link" href="#fictional-details">View details</a></div>
+      </section>
+      <section>
+        <h2>Example workspace</h2>
+        <div id="sensitive-balance"><small>Fictional project budget</small><strong>₹84,250</strong></div>
+        <p style="font-size: 14px; line-height: 1.6; color: #62766a;">Keep the useful context on screen while covering the pieces you choose. Element masks follow the selected content; area masks stay at their screen position.</p>
+        <div class="actions"><button id="safe-action">Try a normal action</button><button id="shift-layout">Move content down</button></div>
+        <p id="demo-status" role="status">No demo actions yet.</p>
+      </section>
+    </div>
+    <section class="activity" id="fictional-details"><h2>Public activity</h2><div class="row"><span>Presentation outline</span><span>Ready for review</span></div><div class="row"><span>Sample assets</span><span>Up to date</span></div><div class="row"><span>Team rehearsal</span><span>Tomorrow, 10:00</span></div></section>
+    <div class="scroll-space">Scroll back up to confirm that element masks continue to follow their content.</div>
+  </main>
+  <footer>No external requests or stored data. Example names, amounts, and details are fictional.</footer>
+  <script>
+    window.demoEvents = { sensitive: 0, safe: 0, pointerdown: 0, link: 0 };
+    document.getElementById('sensitive-action').addEventListener('pointerdown', () => window.demoEvents.pointerdown++);
+    document.getElementById('sensitive-action').addEventListener('click', () => { window.demoEvents.sensitive++; document.getElementById('demo-status').textContent = 'Opened the fictional profile.'; });
+    document.getElementById('sensitive-link').addEventListener('click', () => window.demoEvents.link++);
+    document.getElementById('safe-action').addEventListener('click', () => { window.demoEvents.safe++; document.getElementById('demo-status').textContent = 'Normal page interaction works.'; });
+    document.getElementById('shift-layout').addEventListener('click', () => { const spacer = document.getElementById('layout-spacer'); spacer.style.height = spacer.style.height ? '' : '140px'; document.getElementById('demo-status').textContent = 'Content moved; element masks should follow.'; });
+  </script>
+</body>
+</html>

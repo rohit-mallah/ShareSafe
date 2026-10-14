@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Install ShareSafe Companion</title>
+  <style>
+    :root { color-scheme: dark; font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #15201b; color: #e9f1ec; }
+    body { max-width: 680px; margin: 0 auto; padding: 64px 24px; }
+    .brand { color: #a2e9ca; font-size: 12px; font-weight: 700; letter-spacing: .16em; }
+    h1 { font-size: 38px; line-height: 1.15; margin: 18px 0; letter-spacing: -.035em; }
+    h2 { font-size: 20px; margin-top: 32px; }
+    p, li { color: #bdcfc3; }
+    li { margin: 14px 0; padding-left: 4px; }
+    strong { color: #edf6f0; }
+    code { color: #a2e9ca; background: #22362a; padding: 3px 6px; border-radius: 4px; user-select: all; }
+    .note { border-top: 1px solid #3b4c40; margin-top: 32px; padding-top: 16px; font-size: 14px; }
+    a { color: #a2e9ca; }
+  </style>
+</head>
+<body>
+  <span class="brand">SHARESAFE COMPANION</span>
+  <h1>Cover a webpage.<br>Share as usual.</h1>
+  <p>Install once in Chrome. Direct Blur is the default. Your masks blur real webpage pixels locally and in shares that capture the rendered webpage.</p>
+  <ol>
+    <li>In Chrome’s address bar, enter <code>chrome://extensions</code>.</li>
+    <li>Turn on <strong>Developer mode</strong>, then click <strong>Load unpacked</strong>.</li>
+    <li>Select the <strong>ChromeExtension</strong> folder containing this guide and <strong>manifest.json</strong>. If using a zip, extract it first. If using the native build, a copy is inside <strong>ShareSafe.app → Contents → Resources → ChromeExtension</strong>. The current menu-bar app does not open the installation folder for you.</li>
+    <li>Pin <strong>ShareSafe Companion</strong> from Chrome’s Extensions menu.</li>
+    <li>Open a website. Click ShareSafe or press <strong>⌘⇧H</strong> (<strong>Ctrl+Shift+H</strong> on Windows/Linux), then click an element to cover it.</li>
+  </ol>
+  <h2>Your covers, your controls</h2>
+  <p><strong>Style: Blur / Solid</strong> chooses the style for new masks. <strong>Hide area</strong> draws a fixed viewport rectangle. <strong>Hide element</strong> follows content as it moves. <strong>Escape</strong> or <strong>Done</strong> ends selection and leaves covers in place. <strong>Undo</strong> removes the latest; <strong>Clear</strong> restores everything.</p>
+  <h2>Use a normal webpage</h2>
+  <p>Chrome’s settings, new-tab pages, Web Store, built-in viewers and browser controls cannot be masked. To try the offline demo, enable <strong>Allow access to file URLs</strong> in the extension details. The shortcut can be changed at <code>chrome://extensions/shortcuts</code>.</p>
+  <p class="note">Covers reset on navigation/reload. Replaced page elements need selecting again. If page fullscreen blocks the toolbar, ShareSafe conceals the source while returning to the normal page, retaining your covers. Area masks switch to solid when page dialogs/popovers open. Close page modal dialogs to use the toolbar. Frame contents have limits. This companion works independently of the desktop app; it does not detect sharing or control meeting apps. Check the receiver’s view before a sensitive share. <a href="README.md">Read the full guide</a>.</p>
+</body>
+</html>

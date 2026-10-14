@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "minimum_chrome_version": "114",
+  "name": "ShareSafe Companion",
+  "version": "0.2.0",
+  "description": "Cover webpage elements or areas before sharing. Local, visible covers; no accounts or network access.",
+  "permissions": ["activeTab", "scripting"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "ShareSafe — hide an element" },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": { "default": "Ctrl+Shift+H", "mac": "Command+Shift+H" },
+      "description": "Start ShareSafe element selection"
+    }
+  }
+}

@@ -1,0 +1,24 @@
+# Generated native builds and local SwiftPM state
+.build/
+.swiftpm/
+dist/
+
+# Browser test dependencies and generated output
+node_modules/
+playwright-report/
+test-results/
+
+# Local tooling, credentials and OS/editor state
+.DS_Store
+*.log
+.env
+.env.*
+*.xcuserstate
+xcuserdata/
+.agents/
+.codex/
+
+# Internal planning and local diagnostics are not part of the source release
+docs/
+plans/
+specs/
