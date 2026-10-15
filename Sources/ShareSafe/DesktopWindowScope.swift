@@ -2,12 +2,12 @@ import CoreGraphics
 import Foundation
 import ShareSafeCore
 
-struct DesktopWindowIdentity: Equatable {
+struct DesktopWindowIdentity: Equatable, Sendable {
     let windowID: UInt32
     let processID: Int32
 }
 
-struct DesktopWindow: Equatable {
+struct DesktopWindow: Equatable, Sendable {
     let identity: DesktopWindowIdentity
     let frame: CGRect
     let layer: Int

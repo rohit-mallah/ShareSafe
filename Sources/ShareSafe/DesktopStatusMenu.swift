@@ -2,7 +2,7 @@ import AppKit
 import Carbon
 
 enum DesktopStatusAction: String, Hashable {
-    case selectArea, editAreas, removeSelected, undo, clear, toggleEmergency, quit
+    case selectArea, editAreas, removeSelected, undo, clear, toggleEmergency, followContent, fixedArea, quit
 }
 
 struct DesktopShortcut {
@@ -29,6 +29,7 @@ final class DesktopStatusMenu: NSObject {
 
     init(regionCount: Int, isEditing: Bool, emergencyCovered: Bool, error: String?,
          shortcutWarning: String?, visibleRegionCount: Int? = nil,
+         editableRegionCount: Int? = nil, followsContent: Bool = false,
          performAction: @escaping (DesktopStatusAction) -> Void) {
         self.performAction = performAction
         super.init()
@@ -39,9 +40,9 @@ final class DesktopStatusMenu: NSObject {
              "\(visible) \(visible == 1 ? "area" : "areas") hidden")
         if visible != regionCount { info("\(regionCount) saved on their windows") }
         menu.addItem(.separator())
-        action(regionCount == 0 ? "Blur an area" : "Blur another area", .selectArea,
+        action(followsContent ? "Blur content" : regionCount == 0 ? "Blur an area" : "Blur another area", .selectArea,
                enabled: !emergencyCovered)
-        let canEdit = visible > 0 && !emergencyCovered
+        let canEdit = (editableRegionCount ?? visible) > 0 && !emergencyCovered
         action(isEditing ? "Finish editing" : "Move / remove areas", .editAreas, enabled: canEdit)
         if isEditing {
             action("Remove selected area", .removeSelected, enabled: canEdit, shortcut: "Delete")
@@ -51,10 +52,17 @@ final class DesktopStatusMenu: NSObject {
         action("Clear all areas", .clear, enabled: regionCount > 0 && !emergencyCovered)
         menu.addItem(.separator())
         action(emergencyCovered ? "Restore screen" : "Hide all displays", .toggleEmergency)
+        menu.addItem(.separator())
+        action("Content — follows scrolling", .followContent, enabled: !emergencyCovered)
+        menu.items.last?.state = followsContent ? .on : .off
+        action("Fixed area — stays in place", .fixedArea, enabled: !emergencyCovered)
+        menu.items.last?.state = followsContent ? .off : .on
         if let error {
             menu.addItem(.separator())
             let warning = info(error.hasPrefix("Start your drag") ? "Start your drag inside an app window" :
-                                "Review your areas after the screen change")
+                error.hasPrefix("Allow ShareSafe") ? "Allow Accessibility or choose Fixed area" :
+                error.hasPrefix("This content") ? "Content unsupported — choose Fixed area" :
+                "Review your areas after the screen change")
             warning.toolTip = error
         }
         if let shortcutWarning { info(shortcutWarning) }

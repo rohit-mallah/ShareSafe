@@ -7,6 +7,9 @@ import ShareSafeCore
 @MainActor
 final class DesktopOverlayController: ObservableObject {
     @Published var maskStyle: MaskStyle = .blur
+    @Published private(set) var followsContent: Bool
+    @Published private(set) var pausedContentCount = 0
+    @Published private(set) var editableRegionCount = 0
     @Published private(set) var regionCount = 0
     @Published private(set) var visibleRegionCount = 0
     @Published private(set) var isSelecting = false
@@ -31,10 +34,13 @@ final class DesktopOverlayController: ObservableObject {
     private struct Cover {
         let id: UUID
         var anchor: DesktopWindowAnchor
+        var contentID: UUID?
+        var contentDraft: DesktopWindowAnchor?
         let style: MaskStyle
         var frame: CGRect
         var panels: [OverlayPanel] = []
         var visibleFragments: [CGRect] = []
+        var trackingPaused = false
     }
 
     private var covers: [Cover] = []
@@ -47,6 +53,7 @@ final class DesktopOverlayController: ObservableObject {
     private var workspaceObservers: [NSObjectProtocol] = []
     private var trackingTask: Task<Void, Never>?
     private let readWindows: () -> DesktopWindowScope
+    private let contentTracker: DesktopContentTracking
     private var windowScope = DesktopWindowScope(windows: [])
     private var selectionWindow: DesktopWindow?
     private var keyMonitor: Any?
@@ -55,10 +62,13 @@ final class DesktopOverlayController: ObservableObject {
     private var needsDisplayReview = false
 
     private var editableCovers: [Cover] {
-        covers.filter { !$0.visibleFragments.isEmpty }
+        covers.filter { !$0.visibleFragments.isEmpty && !$0.trackingPaused }
     }
 
-    init(readWindows: (() -> DesktopWindowScope)? = nil) {
+    init(followsContent: Bool = true, readWindows: (() -> DesktopWindowScope)? = nil,
+         contentTracker: DesktopContentTracking? = nil) {
+        self.followsContent = followsContent
+        self.contentTracker = contentTracker ?? DesktopContentTracker()
         self.readWindows = readWindows ?? {
             DesktopWindowScope.read(primaryTop: NSScreen.screens.first?.frame.maxY ?? 0,
                 excludingProcessID: ProcessInfo.processInfo.processIdentifier)
@@ -100,6 +110,10 @@ final class DesktopOverlayController: ObservableObject {
                 }
             })
         }
+        self.contentTracker.onChange = { [weak self] in
+            guard let self, !self.stopped else { return }
+            self.reconcileCovers()
+        }
         // Window movement/resize has no permission-free cross-app notification.
         // Query only while areas exist; read metadata rather than capturing pixels.
         trackingTask = Task { @MainActor [weak self] in
@@ -113,6 +127,14 @@ final class DesktopOverlayController: ObservableObject {
     func refreshWindowScope() {
         guard !stopped else { return }
         windowScope = readWindows()
+        if !isEditing { commitContentDrafts() }
+        let contexts = covers.compactMap { cover -> DesktopContentContext? in
+            guard cover.contentDraft == nil, let id = cover.contentID,
+                  let window = windowScope.window(for: cover.anchor.identity) else { return nil }
+            return DesktopContentContext(id: id, window: window, primaryTop: primaryTop)
+        }
+        // Do not query a target merely because its source was minimized/off-Space.
+        contentTracker.refresh(contexts)
         reconcileCovers()
     }
 
@@ -120,17 +142,51 @@ final class DesktopOverlayController: ObservableObject {
         let keyPanel = NSApp.keyWindow
         let focusedCoverID = covers.first { cover in cover.panels.contains { $0 === keyPanel } }?.id
         var visible = 0
+        var paused = 0
+        var unsupported: [UUID] = []
         for index in covers.indices {
-            if let source = windowScope.window(for: covers[index].anchor.identity) {
-                covers[index].frame = covers[index].anchor.rectangle(in: source.frame)
+            covers[index].trackingPaused = false
+            var anchor = covers[index].anchor
+            var renderStyle = covers[index].style
+            var fragments: [CGRect] = []
+            if let source = windowScope.window(for: anchor.identity) {
+                covers[index].frame = anchor.rectangle(in: source.frame)
+                if let draft = covers[index].contentDraft {
+                    covers[index].frame = draft.rectangle(in: source.frame)
+                    fragments = windowScope.visibleFragments(for: draft)
+                } else if let contentID = covers[index].contentID {
+                    let state = contentTracker.state(for: contentID)
+                    switch state {
+                    case .visible(let geometry) where geometry.windowFrame == source.frame:
+                        covers[index].frame = geometry.area
+                        if let area = OverlayGeometry.clipped(geometry.area, to: geometry.viewport),
+                           let current = DesktopWindowAnchor(window: source, rectangle: area) {
+                            anchor = current
+                            fragments = windowScope.visibleFragments(for: anchor)
+                        }
+                    case .offscreen:
+                        break
+                    case .unsupported:
+                        unsupported.append(covers[index].id)
+                    default:
+                        // Never leave an old rectangle over unrelated content
+                        // while identity or geometry is unknown.
+                        paused += 1
+                        covers[index].trackingPaused = true
+                        renderStyle = .solid
+                        if let full = DesktopWindowAnchor(window: source, rectangle: source.frame) {
+                            fragments = windowScope.visibleFragments(for: full)
+                        }
+                    }
+                } else {
+                    fragments = windowScope.visibleFragments(for: anchor)
+                }
             }
-            let fragments = windowScope.visibleFragments(for: covers[index].anchor).flatMap { frame in
-                displays.compactMap { OverlayGeometry.clipped(frame, to: $0.frame) }
-            }
+            fragments = fragments.flatMap { frame in displays.compactMap { OverlayGeometry.clipped(frame, to: $0.frame) } }
             covers[index].visibleFragments = fragments
             if !fragments.isEmpty { visible += 1 }
             while covers[index].panels.count < fragments.count {
-                covers[index].panels.append(makeCoverPanel(id: covers[index].id, style: covers[index].style))
+                covers[index].panels.append(makeCoverPanel(id: covers[index].id, style: renderStyle))
             }
             for (part, panel) in covers[index].panels.enumerated() {
                 guard part < fragments.count else {
@@ -139,12 +195,24 @@ final class DesktopOverlayController: ObservableObject {
                     continue
                 }
                 if panel.frame != fragments[part] { panel.setFrame(fragments[part], display: true) }
-                setEditing(isEditing, on: panel)
+                if let surface = panel.contentView as? DesktopCoverSurface, surface.style != renderStyle {
+                    surface.style = renderStyle
+                }
+                setEditing(isEditing && !covers[index].trackingPaused, on: panel)
                 (panel.contentView as? DesktopCoverSurface)?.selected = covers[index].id == selectedCoverID
                 if !panel.isVisible { panel.orderFrontRegardless() }
             }
         }
+        for id in unsupported {
+            guard let index = covers.firstIndex(where: { $0.id == id }) else { continue }
+            let removed = covers.remove(at: index)
+            release(removed)
+            lastError = "This content cannot be followed. Choose Fixed area, or use the browser companion's Hide element."
+        }
+        if regionCount != covers.count { regionCount = covers.count }
+        if pausedContentCount != paused { pausedContentCount = paused }
         if visibleRegionCount != visible { visibleRegionCount = visible }
+        if editableRegionCount != editableCovers.count { editableRegionCount = editableCovers.count }
         if isEditing, !editableCovers.contains(where: { $0.id == selectedCoverID }) {
             if let next = editableCovers.last { focusCover(next.id) }
             else { endInteraction() }
@@ -164,6 +232,13 @@ final class DesktopOverlayController: ObservableObject {
             return
         }
         endInteraction()
+        if followsContent && !contentTracker.isTrusted {
+            lastError = "Allow ShareSafe in Accessibility to follow content, or choose Fixed area."
+            status = "Accessibility access needed for Content mode"
+            contentTracker.requestAccessIfNeeded()
+            return
+        }
+        if !needsDisplayReview { lastError = nil }
         refreshWindowScope()
         let screens = NSScreen.screens
         guard !screens.isEmpty else {
@@ -173,7 +248,8 @@ final class DesktopOverlayController: ObservableObject {
         }
         priorKeyWindow = NSApp.keyWindow
         isSelecting = true
-        status = "Drag an area to hide. Escape cancels."
+        status = followsContent ? "Drag inside the text or control to follow. Escape cancels." :
+            "Drag an area to hide. Escape cancels."
         installKeyMonitor()
         for screen in screens {
             guard let display = Display(screen) else { continue }
@@ -279,7 +355,7 @@ final class DesktopOverlayController: ObservableObject {
         endInteraction()
         // Undo removes the most recently created remaining ordinary cover.
         guard let cover = covers.popLast() else { return }
-        cover.panels.forEach { $0.close() }
+        release(cover)
         regionCount = covers.count
         reconcileCovers()
         if covers.isEmpty { endInteraction() }
@@ -289,10 +365,12 @@ final class DesktopOverlayController: ObservableObject {
     func removeAll() {
         guard !stopped, !emergencyCovered else { return }
         endInteraction()
-        covers.forEach { $0.panels.forEach { $0.close() } }
+        covers.forEach { release($0) }
         covers.removeAll()
         regionCount = 0
         visibleRegionCount = 0
+        pausedContentCount = 0
+        editableRegionCount = 0
         needsDisplayReview = false
         lastError = nil
         updateStatus()
@@ -321,15 +399,18 @@ final class DesktopOverlayController: ObservableObject {
     func stop() {
         guard !stopped else { return }
         stopped = true
+        contentTracker.onChange = nil
         trackingTask?.cancel()
         trackingTask = nil
         endInteraction()
-        covers.forEach { $0.panels.forEach { $0.close() } }
+        covers.forEach { release($0) }
         emergencyPanels.forEach { $0.close() }
         covers.removeAll()
         emergencyPanels.removeAll()
         regionCount = 0
         visibleRegionCount = 0
+        pausedContentCount = 0
+        editableRegionCount = 0
         emergencyCovered = false
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
         screenObserver = nil
@@ -375,10 +456,25 @@ final class DesktopOverlayController: ObservableObject {
             return
         }
         let id = UUID()
-        covers.append(Cover(id: id, anchor: anchor, style: maskStyle, frame: anchor.rectangle(in: source.frame)))
+        let contentID = followsContent ? contentTracker.capture(rectangle: clipped, window: source, primaryTop: primaryTop) : nil
+        covers.append(Cover(id: id, anchor: anchor, contentID: contentID, style: maskStyle, frame: anchor.rectangle(in: source.frame)))
         regionCount = covers.count
-        reconcileCovers()
         if !needsDisplayReview { lastError = nil }
+        reconcileCovers()
+    }
+
+    private var primaryTop: CGFloat { NSScreen.screens.first?.frame.maxY ?? 0 }
+
+    func setContentFollowing(_ enabled: Bool) {
+        finishInteraction()
+        followsContent = enabled
+        if !needsDisplayReview { lastError = nil }
+        updateStatus()
+    }
+
+    private func release(_ cover: Cover) {
+        cover.panels.forEach { $0.close() }
+        if let id = cover.contentID { contentTracker.remove(id) }
     }
 
     private func makeCoverPanel(id: UUID, style: MaskStyle) -> OverlayPanel {
@@ -411,13 +507,28 @@ final class DesktopOverlayController: ObservableObject {
               let source = windowScope.window(for: covers[index].anchor.identity),
               let frame = OverlayGeometry.moved(startFrame, by: delta, in: source.frame),
               let anchor = DesktopWindowAnchor(window: source, rectangle: frame) else { return }
+        // Keep the user's editable rectangle stable through all drag/arrow
+        // events. Bind once on Done, rather than interrupting the first move
+        // with a pending AX result and losing keyboard focus.
+        if covers[index].contentID != nil { covers[index].contentDraft = anchor }
         covers[index].anchor = anchor
         reconcileCovers()
     }
 
+    private func commitContentDrafts() {
+        for index in covers.indices {
+            guard let draft = covers[index].contentDraft, let old = covers[index].contentID,
+                  let source = windowScope.window(for: draft.identity) else { continue }
+            covers[index].contentID = contentTracker.capture(rectangle: draft.rectangle(in: source.frame),
+                window: source, primaryTop: primaryTop)
+            covers[index].contentDraft = nil
+            contentTracker.remove(old)
+        }
+    }
+
     private func removeCover(_ id: UUID) {
         guard isEditing, let index = covers.firstIndex(where: { $0.id == id }) else { return }
-        covers.remove(at: index).panels.forEach { $0.close() }
+        release(covers.remove(at: index))
         regionCount = covers.count
         reconcileCovers()
         if let last = editableCovers.last {
@@ -473,6 +584,11 @@ final class DesktopOverlayController: ObservableObject {
         keyMonitor = nil
         if hadInteraction, let priorKeyWindow, priorKeyWindow.isVisible { priorKeyWindow.makeKey() }
         priorKeyWindow = nil
+        if !stopped {
+            let hadDraft = covers.contains { $0.contentDraft != nil }
+            commitContentDrafts()
+            if hadDraft { reconcileCovers() }
+        }
     }
 
     private func installEmergencyBlankets() {
@@ -519,6 +635,8 @@ final class DesktopOverlayController: ObservableObject {
     private func updateStatus() {
         if emergencyCovered {
             status = lastError == nil ? "Emergency cover on — all displays hidden" : "Displays changed — emergency cover on. Review your areas."
+        } else if pausedContentCount > 0 {
+            status = "Content tracking paused — source window covered. Undo or clear to select again."
         } else if isEditing {
             status = "Click or Tab to select. Arrows move; Shift moves faster. Delete removes. Escape finishes."
         } else if needsDisplayReview {

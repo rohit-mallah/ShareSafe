@@ -8,6 +8,8 @@ final class DesktopToolbarController {
     let panel: NSPanel
     let primaryButton = ToolbarButton(title: "Blur area")
     let editButton = ToolbarButton(title: "Move/remove")
+    let modeButton = ToolbarButton(title: "")
+    private let notice = NSTextField(wrappingLabelWithString: "")
     let undoButton = ToolbarButton(title: "")
     let clearButton = ToolbarButton(title: "Clear")
     let hideButton = ToolbarButton(title: "")
@@ -58,6 +60,10 @@ final class DesktopToolbarController {
         primaryButton.bezelColor = .systemMint
         primaryButton.contentTintColor = .black
         primaryButton.onClick = { [weak self] in self?.primaryAction() }
+        modeButton.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "Blur mode")
+        modeButton.setAccessibilityLabel("Choose Content or Fixed area")
+        modeButton.toolTip = "Content follows scrolling in supported apps. Fixed area stays in place."
+        modeButton.onClick = { [weak self] in self?.showModeMenu() }
         editButton.onClick = { [weak self] in
             guard let self else { return }
             if self.overlays.isEditing { self.overlays.removeSelected() }
@@ -76,7 +82,7 @@ final class DesktopToolbarController {
         hideButton.onClick = { [weak self] in self?.hide() }
 
         let dragHandle = ToolbarDragHandle(frame: .zero)
-        let stack = NSStackView(views: [dragHandle, brand, separator, primaryButton,
+        let stack = NSStackView(views: [dragHandle, brand, separator, primaryButton, modeButton,
                                        editButton, undoButton, clearButton, hideButton])
         stack.orientation = .horizontal
         stack.alignment = .centerY
@@ -86,14 +92,28 @@ final class DesktopToolbarController {
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: material.leadingAnchor, constant: 10),
             stack.trailingAnchor.constraint(equalTo: material.trailingAnchor, constant: -10),
-            stack.centerYAnchor.constraint(equalTo: material.centerYAnchor),
+            stack.topAnchor.constraint(equalTo: material.topAnchor, constant: 12),
+            stack.heightAnchor.constraint(equalToConstant: 32),
             dragHandle.widthAnchor.constraint(equalToConstant: 14),
             dragHandle.heightAnchor.constraint(equalToConstant: 30),
-            primaryButton.widthAnchor.constraint(equalToConstant: 82),
+            primaryButton.widthAnchor.constraint(equalToConstant: 94),
+            modeButton.widthAnchor.constraint(equalToConstant: 18),
             editButton.widthAnchor.constraint(equalToConstant: 98),
             undoButton.widthAnchor.constraint(equalToConstant: 28),
             clearButton.widthAnchor.constraint(equalToConstant: 48),
             hideButton.widthAnchor.constraint(equalToConstant: 24)
+        ])
+
+        notice.font = .systemFont(ofSize: 11)
+        notice.textColor = .systemOrange
+        notice.isHidden = true
+        notice.translatesAutoresizingMaskIntoConstraints = false
+        material.addSubview(notice)
+        NSLayoutConstraint.activate([
+            notice.leadingAnchor.constraint(equalTo: material.leadingAnchor, constant: 12),
+            notice.trailingAnchor.constraint(equalTo: material.trailingAnchor, constant: -12),
+            notice.topAnchor.constraint(equalTo: stack.bottomAnchor, constant: 4),
+            notice.heightAnchor.constraint(equalToConstant: 30)
         ])
 
         subscription = overlays.objectWillChange.sink { [weak self] in
@@ -132,18 +152,43 @@ final class DesktopToolbarController {
 
     func refresh() {
         let interacting = overlays.isSelecting || overlays.isEditing
-        let title = overlays.emergencyCovered ? "Restore" : interacting ? "Done" : "Blur area"
+        let title = overlays.emergencyCovered ? "Restore" : interacting ? "Done" : overlays.followsContent ? "Blur content" : "Blur area"
         if primaryButton.title != title { primaryButton.title = title }
         primaryButton.toolTip = overlays.emergencyCovered ? "Restore your displays · ⌃⌥⌘B" :
-            interacting ? "Finish selecting or editing · Escape" : "Drag an area to blur · ⌃⌥⌘H"
+            interacting ? "Finish selecting or editing · Escape" : overlays.followsContent ?
+                "Drag inside text or a control to follow it · ⌃⌥⌘H" : "Drag a fixed area to blur · ⌃⌥⌘H"
         let editTitle = overlays.isEditing ? "Remove" : "Move/remove"
         if editButton.title != editTitle { editButton.title = editTitle }
         editButton.toolTip = overlays.isEditing ? "Remove selected area · Delete. Arrows move; Tab selects." :
             "Select, move or remove an area · ⌃⌥⌘E"
-        editButton.isEnabled = !overlays.emergencyCovered && !overlays.isSelecting && overlays.visibleRegionCount > 0
+        editButton.isEnabled = !overlays.emergencyCovered && !overlays.isSelecting && overlays.editableRegionCount > 0
         undoButton.isEnabled = !overlays.emergencyCovered && overlays.regionCount > 0
         clearButton.isEnabled = !overlays.emergencyCovered && overlays.regionCount > 0
-        panel.contentView?.toolTip = overlays.lastError ?? overlays.status
+        modeButton.isEnabled = !overlays.emergencyCovered && !interacting
+        let message = overlays.pausedContentCount > 0 ? overlays.status : overlays.lastError
+        notice.stringValue = message ?? ""
+        notice.isHidden = message == nil
+        let height: CGFloat = message == nil ? 56 : 92
+        if panel.frame.height != height { panel.setContentSize(CGSize(width: 470, height: height)) }
+        panel.contentView?.toolTip = message ?? overlays.status
+    }
+
+    private func showModeMenu() {
+        let menu = NSMenu(title: "Blur mode")
+        for (title, content) in [("Content — follows scrolling", true), ("Fixed area — stays in place", false)] {
+            let item = NSMenuItem(title: title, action: #selector(chooseMode(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = content
+            item.state = overlays.followsContent == content ? .on : .off
+            menu.addItem(item)
+        }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: modeButton.bounds.minY), in: modeButton)
+    }
+
+    @objc private func chooseMode(_ item: NSMenuItem) {
+        guard let content = item.representedObject as? Bool else { return }
+        overlays.setContentFollowing(content)
+        refresh()
     }
 
     private func primaryAction() {

@@ -58,7 +58,7 @@ struct DesktopOverlayControllerTests {
         let original = try source()
         let area = original.frame.insetBy(dx: 100, dy: 100)
         var snapshot = DesktopWindowScope(windows: [original])
-        let controller = DesktopOverlayController(readWindows: { snapshot })
+        let controller = DesktopOverlayController(followsContent: false, readWindows: { snapshot })
         defer { controller.stop() }
         try draw(area, in: controller)
         #expect(controller.regionCount == 1 && controller.visibleRegionCount == 1)
@@ -80,7 +80,7 @@ struct DesktopOverlayControllerTests {
         let obstruction = DesktopWindow(identity: .init(windowID: 20, processID: 100),
             frame: area.insetBy(dx: 50, dy: 50), layer: 0)
         var snapshot = DesktopWindowScope(windows: [original])
-        let controller = DesktopOverlayController(readWindows: { snapshot })
+        let controller = DesktopOverlayController(followsContent: false, readWindows: { snapshot })
         defer { controller.stop() }
         try draw(area, in: controller)
         snapshot = DesktopWindowScope(windows: [obstruction, original])
@@ -104,7 +104,7 @@ struct DesktopOverlayControllerTests {
     @Test func disappearingWindowEndsEditingAndRestoredPanelsAreClickThrough() throws {
         let original = try source()
         var snapshot = DesktopWindowScope(windows: [original])
-        let controller = DesktopOverlayController(readWindows: { snapshot })
+        let controller = DesktopOverlayController(followsContent: false, readWindows: { snapshot })
         defer { controller.stop() }
         try draw(original.frame.insetBy(dx: 100, dy: 100), in: controller)
         controller.toggleEditing()
@@ -123,7 +123,7 @@ struct DesktopOverlayControllerTests {
         let obstruction = DesktopWindow(identity: .init(windowID: 20, processID: 200),
                                         frame: area.insetBy(dx: 50, dy: 50), layer: 0)
         var snapshot = DesktopWindowScope(windows: [original])
-        let controller = DesktopOverlayController(readWindows: { snapshot })
+        let controller = DesktopOverlayController(followsContent: false, readWindows: { snapshot })
         defer { controller.stop() }
         try draw(area, in: controller)
         snapshot = DesktopWindowScope(windows: [obstruction, original])
@@ -146,7 +146,7 @@ struct DesktopOverlayControllerTests {
         let original = try source()
         let area = original.frame.insetBy(dx: 100, dy: 100)
         var snapshot = DesktopWindowScope(windows: [original])
-        let controller = DesktopOverlayController(readWindows: { snapshot })
+        let controller = DesktopOverlayController(followsContent: false, readWindows: { snapshot })
         defer { controller.stop() }
         try draw(area, in: controller)
         controller.toggleEmergencyCover()
@@ -162,7 +162,7 @@ struct DesktopOverlayControllerTests {
 
     @Test func toolbarShowsWithoutStartingSelectionAndItsPrimaryButtonFinishesDrawing() throws {
         let original = try source()
-        let controller = DesktopOverlayController(readWindows: { DesktopWindowScope(windows: [original]) })
+        let controller = DesktopOverlayController(followsContent: false, readWindows: { DesktopWindowScope(windows: [original]) })
         let toolbar = DesktopToolbarController(overlays: controller)
         defer { toolbar.stop(); controller.stop() }
         toolbar.show()
@@ -181,7 +181,7 @@ struct DesktopOverlayControllerTests {
 
     @Test func hidingToolbarEndsEditingButKeepsAreasAndReopeningDoesNotEnrollAWindow() throws {
         let original = try source()
-        let controller = DesktopOverlayController(readWindows: { DesktopWindowScope(windows: [original]) })
+        let controller = DesktopOverlayController(followsContent: false, readWindows: { DesktopWindowScope(windows: [original]) })
         let toolbar = DesktopToolbarController(overlays: controller)
         defer { toolbar.stop(); controller.stop() }
         try draw(original.frame.insetBy(dx: 100, dy: 100), in: controller)
@@ -204,7 +204,7 @@ struct DesktopOverlayControllerTests {
     @Test func toolbarClearAndUndoRouteToTheExistingAreasAndEmergencyKeepsRestoreAvailable() throws {
         let original = try source()
         let area = original.frame.insetBy(dx: 100, dy: 100)
-        let controller = DesktopOverlayController(readWindows: { DesktopWindowScope(windows: [original]) })
+        let controller = DesktopOverlayController(followsContent: false, readWindows: { DesktopWindowScope(windows: [original]) })
         let toolbar = DesktopToolbarController(overlays: controller)
         defer { toolbar.stop(); controller.stop() }
         try draw(area, in: controller)
@@ -223,4 +223,197 @@ struct DesktopOverlayControllerTests {
         toolbar.clearButton.performClick(nil)
         #expect(controller.regionCount == 0 && visiblePanels.isEmpty)
     }
+
+    @Test func contentToolbarFitsItsControlsAndPermissionNotice() throws {
+        let original = try source()
+        let tracker = StubContentTracker()
+        tracker.isTrusted = false
+        let controller = DesktopOverlayController(readWindows: { DesktopWindowScope(windows: [original]) }, contentTracker: tracker)
+        let toolbar = DesktopToolbarController(overlays: controller)
+        defer { toolbar.stop(); controller.stop() }
+        toolbar.show()
+        toolbar.panel.contentView?.layoutSubtreeIfNeeded()
+        #expect(toolbar.primaryButton.title == "Blur content")
+        let buttons = [toolbar.primaryButton, toolbar.modeButton, toolbar.editButton, toolbar.undoButton, toolbar.clearButton, toolbar.hideButton]
+        #expect(buttons.allSatisfy { !$0.hasAmbiguousLayout && $0.frame.width > 0 && $0.frame.height > 0 })
+        for (left, right) in zip(buttons, buttons.dropFirst()) { #expect(left.frame.maxX <= right.frame.minX) }
+        toolbar.primaryButton.performClick(nil)
+        toolbar.panel.contentView?.layoutSubtreeIfNeeded()
+        #expect(toolbar.panel.frame.height == 92 && toolbar.modeButton.isEnabled)
+        #expect(!controller.isSelecting && tracker.requests == 1)
+        controller.setContentFollowing(false)
+        toolbar.refresh()
+        #expect(toolbar.panel.frame.height == 56 && toolbar.primaryButton.title == "Blur area")
+    }
+
+    @Test func contentMovesWithScrollingAndLeavesAndReentersItsViewport() throws {
+        let original = try source()
+        let area = original.frame.insetBy(dx: 100, dy: 100)
+        let tracker = StubContentTracker()
+        let controller = DesktopOverlayController(readWindows: { DesktopWindowScope(windows: [original]) }, contentTracker: tracker)
+        defer { controller.stop() }
+        #expect(controller.followsContent)
+        try draw(area, in: controller)
+        let id = try #require(tracker.captured.last)
+        // Initial binding covers the source while geometry is unknown.
+        #expect(visiblePanels.map(\.frame) == [original.frame])
+        #expect(controller.pausedContentCount == 1 && controller.editableRegionCount == 0)
+        let scrolled = area.offsetBy(dx: 0, dy: 30)
+        let viewport = CGRect(x: scrolled.minX, y: scrolled.minY, width: scrolled.width, height: scrolled.height - 20)
+        tracker.publish(.visible(.init(area: scrolled, viewport: viewport, windowFrame: original.frame)), id: id)
+        #expect(visiblePanels.map(\.frame) == [viewport])
+        #expect(controller.pausedContentCount == 0 && controller.editableRegionCount == 1)
+        tracker.publish(.offscreen, id: id)
+        #expect(visiblePanels.isEmpty && controller.regionCount == 1)
+        tracker.publish(.visible(.init(area: area, viewport: original.frame, windowFrame: original.frame)), id: id)
+        #expect(visiblePanels.map(\.frame) == [area])
+    }
+
+    @Test func unavailableContentUsesSolidWindowCoverageAndRemainsUndoable() throws {
+        let original = try source()
+        let tracker = StubContentTracker()
+        let controller = DesktopOverlayController(readWindows: { DesktopWindowScope(windows: [original]) }, contentTracker: tracker)
+        let toolbar = DesktopToolbarController(overlays: controller)
+        defer { toolbar.stop(); controller.stop() }
+        try draw(original.frame.insetBy(dx: 100, dy: 100), in: controller)
+        let id = try #require(tracker.captured.last)
+        tracker.publish(.lost, id: id)
+        #expect(visiblePanels.map(\.frame) == [original.frame])
+        #expect(visiblePanels.allSatisfy { ($0.contentView as? DesktopCoverSurface)?.usesSolidCover == true && $0.ignoresMouseEvents })
+        controller.toggleEditing()
+        #expect(!controller.isEditing && controller.editableRegionCount == 0)
+        toolbar.refresh()
+        #expect(!toolbar.editButton.isEnabled && toolbar.undoButton.isEnabled && toolbar.clearButton.isEnabled)
+        #expect(toolbar.panel.frame.height > 56)
+        controller.undo()
+        #expect(controller.regionCount == 0 && tracker.removed == [id] && visiblePanels.isEmpty)
+    }
+
+    @Test func contentSourceCanMinimizeAndMoveWithoutQueryingItsHiddenTarget() throws {
+        let original = try source()
+        let tracker = StubContentTracker()
+        var snapshot = DesktopWindowScope(windows: [original])
+        let controller = DesktopOverlayController(readWindows: { snapshot }, contentTracker: tracker)
+        defer { controller.stop() }
+        let area = original.frame.insetBy(dx: 100, dy: 100)
+        try draw(area, in: controller)
+        let id = try #require(tracker.captured.last)
+        tracker.publish(.visible(.init(area: area, viewport: original.frame, windowFrame: original.frame)), id: id)
+        snapshot = DesktopWindowScope(windows: [])
+        controller.refreshWindowScope()
+        #expect(visiblePanels.isEmpty && tracker.lastContexts.isEmpty)
+        let moved = DesktopWindow(identity: original.identity, frame: original.frame.offsetBy(dx: 10, dy: 10), layer: 0)
+        snapshot = DesktopWindowScope(windows: [moved])
+        controller.refreshWindowScope()
+        // Geometry for the old window location must never be shown on return.
+        #expect(visiblePanels.map(\.frame) == [moved.frame])
+        #expect(controller.pausedContentCount == 1 && tracker.lastContexts.map(\.id) == [id])
+        tracker.publish(.visible(.init(area: area.offsetBy(dx: 10, dy: 10), viewport: moved.frame, windowFrame: moved.frame)), id: id)
+        #expect(visiblePanels.map(\.frame) == [area.offsetBy(dx: 10, dy: 10)])
+    }
+
+    @Test func contentAndProtectiveCoversRespectOtherAppsAndSiblingWindows() throws {
+        let original = try source()
+        let area = original.frame.insetBy(dx: 100, dy: 100)
+        let other = DesktopWindow(identity: .init(windowID: 20, processID: 100), frame: original.frame, layer: 0)
+        var snapshot = DesktopWindowScope(windows: [original])
+        let tracker = StubContentTracker()
+        let controller = DesktopOverlayController(readWindows: { snapshot }, contentTracker: tracker)
+        defer { controller.stop() }
+        try draw(area, in: controller)
+        let id = try #require(tracker.captured.last)
+        tracker.publish(.visible(.init(area: area, viewport: original.frame, windowFrame: original.frame)), id: id)
+        snapshot = DesktopWindowScope(windows: [other, original])
+        controller.refreshWindowScope()
+        #expect(visiblePanels.isEmpty)
+        tracker.publish(.lost, id: id)
+        #expect(visiblePanels.isEmpty)
+        snapshot = DesktopWindowScope(windows: [original, other])
+        controller.refreshWindowScope()
+        #expect(visiblePanels.map(\.frame) == [original.frame])
+    }
+
+    @Test func permissionsAreRequestedOnlyForExplicitContentSelectionAndFixedAreasStayIndependent() throws {
+        let original = try source()
+        let tracker = StubContentTracker()
+        tracker.isTrusted = false
+        let controller = DesktopOverlayController(readWindows: { DesktopWindowScope(windows: [original]) }, contentTracker: tracker)
+        defer { controller.stop() }
+        #expect(tracker.requests == 0)
+        controller.beginSelection()
+        #expect(!controller.isSelecting && controller.lastError?.contains("Accessibility") == true && tracker.requests == 1)
+        controller.setContentFollowing(false)
+        try draw(original.frame.insetBy(dx: 100, dy: 100), in: controller)
+        #expect(controller.regionCount == 1 && tracker.captured.isEmpty && tracker.requests == 1)
+        controller.removeAll()
+        controller.setContentFollowing(true)
+        tracker.isTrusted = true
+        try draw(original.frame.insetBy(dx: 100, dy: 100), in: controller)
+        #expect(tracker.requests == 1 && tracker.captured.count == 1)
+    }
+
+    @Test func unsupportedContentIsReportedWithoutSilentlyCreatingAFixedArea() throws {
+        let original = try source()
+        let tracker = StubContentTracker()
+        let controller = DesktopOverlayController(readWindows: { DesktopWindowScope(windows: [original]) }, contentTracker: tracker)
+        defer { controller.stop() }
+        try draw(original.frame.insetBy(dx: 100, dy: 100), in: controller)
+        let id = try #require(tracker.captured.last)
+        tracker.publish(.unsupported, id: id)
+        #expect(controller.regionCount == 0 && visiblePanels.isEmpty && tracker.removed == [id])
+        #expect(controller.lastError?.contains("cannot be followed") == true && controller.followsContent)
+    }
+
+    @Test func editingContentRebindsExplicitlyAndClearingOrStoppingReleasesEveryTarget() throws {
+        let original = try source()
+        let area = original.frame.insetBy(dx: 100, dy: 100)
+        let tracker = StubContentTracker()
+        let controller = DesktopOverlayController(readWindows: { DesktopWindowScope(windows: [original]) }, contentTracker: tracker)
+        defer { controller.stop() }
+        try draw(area, in: controller)
+        let id = try #require(tracker.captured.last)
+        tracker.publish(.visible(.init(area: area, viewport: original.frame, windowFrame: original.frame)), id: id)
+        controller.toggleEditing()
+        let surface = try #require(visiblePanels.first?.contentView as? DesktopCoverSurface)
+        surface.onNudge?(CGVector(dx: 10, dy: 0))
+        surface.onNudge?(CGVector(dx: 10, dy: 0))
+        #expect(controller.isEditing && tracker.captured == [id])
+        #expect(surface.coverFrame?() == area.offsetBy(dx: 20, dy: 0))
+        controller.finishInteraction()
+        let replacement = try #require(tracker.captured.last)
+        #expect(replacement != id && tracker.removed == [id])
+        #expect(tracker.rectangles.last == area.offsetBy(dx: 20, dy: 0))
+        controller.removeAll()
+        #expect(tracker.removed.contains(replacement) && controller.regionCount == 0)
+        try draw(area, in: controller)
+        let last = try #require(tracker.captured.last)
+        controller.stop()
+        #expect(tracker.removed.contains(last) && tracker.onChange == nil && visiblePanels.isEmpty)
+    }
+
+}
+
+
+@MainActor
+private final class StubContentTracker: DesktopContentTracking {
+    var isTrusted = true
+    var onChange: (() -> Void)?
+    var requests = 0
+    var captured: [UUID] = []
+    var rectangles: [CGRect] = []
+    var removed: [UUID] = []
+    var lastContexts: [DesktopContentContext] = []
+    private var states: [UUID: DesktopContentState] = [:]
+    func requestAccessIfNeeded() { requests += 1 }
+    func capture(rectangle: CGRect, window: DesktopWindow, primaryTop: CGFloat) -> UUID {
+        let id = UUID()
+        captured.append(id)
+        rectangles.append(rectangle)
+        states[id] = .pending
+        return id
+    }
+    func state(for id: UUID) -> DesktopContentState { states[id] ?? .lost }
+    func refresh(_ contexts: [DesktopContentContext]) { lastContexts = contexts }
+    func remove(_ id: UUID) { removed.append(id); states.removeValue(forKey: id) }
+    func publish(_ state: DesktopContentState, id: UUID) { states[id] = state; onChange?() }
 }

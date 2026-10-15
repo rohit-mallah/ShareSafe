@@ -2,7 +2,7 @@
 
 **Drag to blur. Share your screen as usual.**
 
-ShareSafe is a small macOS utility for hiding parts of your desktop. Open its floating toolbar, click **Blur area**, drag a rectangle, and keep using your normal screen-sharing workflow. Add areas on one or several monitors. Blur is visible on your own screen too.
+ShareSafe is a small macOS utility for hiding parts of your desktop. Open its floating toolbar, click **Blur content**, drag inside the text or control to hide, and keep using your normal screen-sharing workflow. Add areas on one or several monitors. Blur is visible on your own screen too.
 
 There is no dashboard, window enrollment, account, or separate audience window in the default workflow.
 
@@ -12,12 +12,13 @@ There is no dashboard, window enrollment, account, or separate audience window i
 
 - Draw multiple blur areas directly on the desktop, before or during screen sharing.
 - Keep a small draggable toolbar nearby for adding, moving, removing, undoing, and clearing areas.
-- Automatically attach each area to the window under your drag, follow that window when it moves, and keep the blur off overlapping windows.
+- Follow supported text ranges and controls as they scroll or move, using macOS Accessibility.
+- Choose **Fixed area** for a rectangle at a fixed offset inside a window. Both modes follow their source window and keep overlays off overlapping windows.
 - Click through the areas to interact with the underlying app outside edit mode.
 - Move, select, undo, and remove areas using the mouse or keyboard.
 - Hide all connected displays with an emergency shortcut and restore them using an on-screen button.
 - Run entirely locally. The default desktop mode does not capture, record, or upload screen pixels.
-- Use native macOS backdrop effects without Screen Recording, Accessibility, camera, microphone, or Input Monitoring permission.
+- Use native macOS backdrop effects without Screen Recording, camera, microphone, or Input Monitoring permission. Content mode needs Accessibility; Fixed area does not.
 
 ShareSafe is an early-stage project. Meeting-client compatibility, native keyboard interactions, and physical multi-monitor changes need further hands-on testing. Automated tests do not establish what a remote participant receives.
 
@@ -54,17 +55,32 @@ Alternatively, run:
 ## Use ShareSafe
 
 1. **Open ShareSafe.** A small floating toolbar appears near the bottom of the monitor under your pointer.
-2. **Click Blur area**, then drag inside the app window you want to protect. The area attaches to that window automatically. Repeat on any connected monitor. Press Escape or **Done** to cancel selection.
-3. **Share your entire screen** through Meet, Zoom, Teams, or your usual meeting app. You can also add areas after screen sharing has started.
-4. **Click Move/remove** to edit. Click an area or use Tab to select it, then drag or use the arrow keys to move it. Click **Remove** or press Delete to remove the selected area. The selected area has a thick mint outline.
-5. **Click Done** or press Escape to finish editing. Areas become click-through again. **Undo** removes the newest area; **Clear** removes all areas.
-6. **Drag the dotted grip** to move the toolbar. Its **×** hides only the controls and leaves your areas in place. Click the menu-bar icon or reopen ShareSafe to bring the toolbar back; right-click the icon for shortcuts, emergency coverage, and quit.
+2. **Click Blur content**, then drag inside one text element or control in the app you want to protect. ShareSafe follows its Accessibility geometry as you scroll. If access is missing, allow ShareSafe under **System Settings → Privacy & Security → Accessibility**, then click Blur content again. Existing access is reused. Repeat on any connected monitor; Escape or **Done** cancels selection.
+3. **Choose Fixed area from the small arrow** beside the Blur button when you want a stationary rectangle or the app does not expose supported content. This mode needs no Accessibility permission. The choice applies to new areas.
+4. **Share your entire screen** through Meet, Zoom, Teams, or your usual meeting app. You can also add areas after screen sharing has started.
+5. **Click Move/remove** to edit. Click an area or use Tab to select it, then drag or use the arrow keys to move it. Click **Remove** or press Delete to remove the selected area. The selected area has a thick mint outline.
+6. **Click Done** or press Escape to finish editing. Areas become click-through again. **Undo** removes the newest area; **Clear** removes all areas.
+7. **Drag the dotted grip** to move the toolbar. Its **×** hides only the controls and leaves your areas in place. Click the menu-bar icon or reopen ShareSafe to bring the toolbar back; right-click the icon for shortcuts, emergency coverage, and quit.
 
 The toolbar does not take keyboard focus from your apps. Global shortcuts still work while it is hidden. During emergency coverage the primary button becomes **Restore**, and editing/undo/clear stay disabled.
 
-Areas stay at a fixed offset from their **source window's top-left corner**. They follow that window when it moves, including between displays. Switching apps or opening another window does not transfer an area to the new window: ShareSafe clips the overlay around windows in front of the source. If the source is fully covered, minimized, hidden, closed, or on another desktop, its overlay disappears. Returning to the same window restores it.
+Both modes attach to the **specific source window**, including across monitors. Switching apps or opening another window does not transfer the blur: ShareSafe clips overlays around windows in front of their source. A fully covered, minimized, hidden, closed, or off-desktop source has no visible overlay. Returning to the same window restores its areas.
 
-This is window tracking, not content tracking. Areas do not follow a message, paragraph, browser tab, or scrolling page. Resizing keeps the area's point size and top-left offset, clipping it to the source bounds; it cannot account for content reflow. Review areas after scrolling, resizing, changing tabs, or switching to fullscreen. Closing/reopening a window can create a different window identity and require a new area. Areas are session-only: clearing them or quitting ShareSafe removes them, and reopening does not restore them.
+**Content mode** follows an Accessibility element or text range, rather than the exact rectangle you drew. It can cover the whole control or the bounding rectangle of several text lines. It clips to exposed ancestor scroll viewports and disappears when the content is outside them. When editing a content area, the rectangle stays stationary while you adjust it; **Done** binds the new selection. Review it before continuing your share.
+
+Support depends on what each app exposes. Large selections spanning unrelated elements, custom canvases, and apps without usable text/element geometry can be unsupported. An unsupported selection is removed with a notice; it does **not** silently become a stationary blur. Choose Fixed area or the Chrome companion's **Hide element** instead.
+
+While binding or waiting for fresh geometry, ShareSafe covers the visible portion of the **source window with solid black**. If the element becomes invalid, its identity changes, or Accessibility access is revoked, that cover remains until you undo/clear the area and select again. An app move or temporary geometry mismatch can recover automatically. This cover also respects overlapping windows. Emergency coverage remains available independently.
+
+**Fixed area** stays at a fixed point size and offset from the source window's top-left corner. It follows window movement, but does not follow scrolling, text, tabs, or content reflow. Review it after scrolling, resizing, or changing tabs.
+
+All areas are session-only: clearing them or quitting removes them. Closing/reopening a source can give it a new window identity and require a new area.
+
+### Permissions
+
+Content mode uses Apple's public Accessibility API to read element roles, bounds, ancestors, identifiers, and—in supported text elements—the selected text needed to check identity. These references and comparison text stay in memory until the area is removed or the app quits. They are never logged, saved, or uploaded. Fixed area uses only public window metadata.
+
+ShareSafe checks the existing Accessibility grant and asks only when you explicitly start a Content selection without access, at most once per app run. It never resets privacy permissions. Locally built apps have an ad-hoc signature; rebuilding changes their code identity, so macOS can require authorization again. Release builds need a consistent signing identity rather than ad-hoc signing for permissions to survive code updates ([Apple: code-signing requirements](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements)).
 
 ### Keyboard shortcuts
 
@@ -96,9 +112,9 @@ If a global shortcut conflicts with another app, the status menu reports the con
 
 The active desktop workflow uses AppKit's `NSVisualEffectView` with behind-window blending. macOS supplies the backdrop effect; ShareSafe does not read or copy other applications' screen pixels in this mode.
 
-To place each overlay, ShareSafe reads public WindowServer metadata: window IDs, owner process IDs, bounds, layers, opacity, and front-to-back ordering. It does not use window titles, Accessibility access, or screen-capture APIs. Window IDs and positions are available without a Screen Recording authorization prompt ([Apple's privacy explanation](https://developer.apple.com/videos/play/wwdc2019/701/?time=1460)). Areas are clipped around higher windows so a different app or a second window in the same app does not inherit the blur. A source window that remains visible beside the active app stays protected.
+To place each overlay, ShareSafe reads public WindowServer metadata: window IDs, owner process IDs, bounds, layers, opacity, and front-to-back ordering. It does not use window titles or screen-capture APIs. Content mode additionally uses Accessibility to obtain the selected element or text range geometry. Window IDs and positions are available without a Screen Recording authorization prompt ([Apple's privacy explanation](https://developer.apple.com/videos/play/wwdc2019/701/?time=1460)). Areas are clipped around higher windows so a different app or a second window in the same app does not inherit the blur. A source window that remains visible beside the active app stays protected.
 
-Window placement refreshes approximately every 100 milliseconds while areas exist, plus app and desktop changes. It is not synchronized with meeting capture frames: fast moves, transitions, animations, transparent windows, rounded corners, and window shadows can produce brief gaps or imperfect clipping. Test with fictional content and review the receiving device before relying on it.
+Window placement refreshes approximately every 100 milliseconds while areas exist, plus app and desktop changes. Content reads run on a background actor with short messaging timeouts and a shared per-batch time budget. Geometry older than 350 milliseconds triggers the solid source-window cover until fresh results arrive. It is not synchronized with meeting capture frames: fast moves, transitions, animations, transparent windows, rounded corners, and window shadows can produce brief gaps or imperfect clipping. Test with fictional content and review the receiving device before relying on it.
 
 macOS controls the material appearance and blur strength. If **Reduce transparency** is enabled in Accessibility settings, selected areas use solid black coverage instead. Existing areas update when that setting changes.
 
@@ -110,7 +126,8 @@ Display layout changes activate solid emergency coverage. Restore the desktop an
 - Desktop overlays affect what is visible locally. They appear in screen sharing only when the capture includes the overlay windows. ShareSafe does not detect, intercept, or replace another app's sharing stream.
 - Sharing one application window or browser tab can bypass the desktop overlays.
 - Blur is a visual obscuring effect, not secure redaction or removal of the underlying data. Use full-display emergency coverage when the whole display must be hidden.
-- Content tracking, persistence, automatic share detection, and a guarantee of protection in every meeting client are not implemented in the native workflow.
+- Content tracking is best effort and depends on the source app. Retained Accessibility objects and text comparisons cannot reliably identify every recycled row, identical replacement, changed tab, or virtualized document. Text edits before a selected range can invalidate it. No app compatibility matrix has been established yet.
+- Persistence, automatic share detection, and a guarantee of protection in every meeting client are not implemented.
 - Older ScreenCaptureKit/mirror experiments remain in the source and tests. They are not reachable from the current launch flow or menus. Enabling those experiments can require capture permission; the default direct desktop workflow does not invoke them.
 
 Use fictional content when checking receiver behavior, fast scrolling, full-screen apps, monitor changes, keyboard shortcuts, and recovery.
@@ -141,7 +158,7 @@ swift test --disable-sandbox --disable-xctest \
   --security-path "$PWD/.build/security"
 ```
 
-The suite checks window identity, movement and occlusion geometry, native overlay lifecycle and editing, pixel rendering, keyboard routing, menu actions, accessibility-style fallback, and legacy capture-model lifecycle behavior using fictional data. The native window tests and legacy Core Image tests need normal access to macOS window/graphics services; running them inside a restrictive execution sandbox can cause failures. The direct desktop mode itself does not use Core Image capture.
+The suite checks window identity and occlusion, native overlay lifecycle and editing, content scrolling and clipping, UTF-16 text ranges, lost identity and revoked access, delayed provider responses and cleanup, pixel rendering, keyboard/menu routing, and legacy capture models using fictional data. Accessibility-reader tests use fixture attributes; they do not establish compatibility with a real third-party app. Receiving-device and real-app scrolling checks still need hands-on testing. The native window tests and legacy Core Image tests need normal access to macOS window/graphics services; running them inside a restrictive execution sandbox can cause failures. The direct desktop mode itself does not use Core Image capture.
 
 Run the dependency-free Chrome service-worker and manifest checks:
 

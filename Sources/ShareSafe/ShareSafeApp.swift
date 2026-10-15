@@ -86,7 +86,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = DesktopStatusMenu(regionCount: overlays.regionCount,
             isEditing: overlays.isEditing, emergencyCovered: overlays.emergencyCovered,
             error: overlays.lastError, shortcutWarning: shortcutWarning,
-            visibleRegionCount: overlays.visibleRegionCount) { [weak self] action in
+            visibleRegionCount: overlays.visibleRegionCount,
+            editableRegionCount: overlays.editableRegionCount, followsContent: overlays.followsContent) { [weak self] action in
                 // Close the tracking menu before installing new selection panels.
                 DispatchQueue.main.async { [weak self] in self?.perform(action) }
             }
@@ -107,6 +108,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .undo: overlays.undo()
         case .clear: overlays.removeAll()
         case .toggleEmergency: overlays.toggleEmergencyCover()
+        case .followContent: overlays.setContentFollowing(true)
+        case .fixedArea: overlays.setContentFollowing(false)
         case .quit: NSApp.terminate(nil)
         }
     }

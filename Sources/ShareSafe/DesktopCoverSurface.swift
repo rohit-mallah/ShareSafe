@@ -5,7 +5,7 @@ import ShareSafeCore
 /// another application's pixels and does not need Screen Recording permission.
 @MainActor
 final class DesktopCoverSurface: NSView {
-    let style: MaskStyle
+    var style: MaskStyle { didSet { updateAppearance() } }
     let backdrop = NSVisualEffectView()
     private let outline = NSView()
     var reduceTransparency: Bool { didSet { updateAppearance() } }
